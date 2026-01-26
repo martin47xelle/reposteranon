@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Radar v55 - Persistent Archive</title>
+    <title>Radar v56 - Time Stamps</title>
     <style>
         :root { --bg: #0b0e11; --card: #1e2329; --gold: #f0b90b; --green: #2ebd85; --blue: #3498db; --red: #f6465d; }
         body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: #e9eaeb; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
@@ -11,23 +11,17 @@
         .box { background: var(--card); border-radius: 12px; border: 1px solid #333; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
         .header { background: #2b3139; padding: 12px; font-weight: bold; color: var(--gold); border-bottom: 1px solid #444; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
         
-        /* GALERİ ALANI */
-        #gallery-grid { 
-            display: grid; 
-            grid-template-columns: repeat(3, 1fr); 
-            gap: 6px; padding: 10px; 
-            background: #000; 
-            min-height: 250px; 
-            max-height: 65vh; 
-            overflow-y: auto; 
-        }
+        #gallery-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 10px; background: #000; min-height: 250px; max-height: 65vh; overflow-y: auto; }
         .gal-item-wrapper { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid #222; background: #111; }
         .gal-item { width: 100%; aspect-ratio: 1; object-fit: cover; cursor: pointer; display: block; }
-        .user-tag { position: absolute; bottom: 0; width: 100%; background: rgba(0,0,0,0.7); font-size: 9px; text-align: center; color: #fff; padding: 3px 0; font-weight: bold; }
         
+        /* ZAMAN VE KULLANICI ETİKETİ */
+        .info-tag { position: absolute; bottom: 0; width: 100%; background: rgba(0,0,0,0.75); font-size: 8px; text-align: center; color: #fff; padding: 2px 0; line-height: 1.2; }
+        .time-ago { color: var(--gold); font-weight: bold; display: block; }
+
         #sys-log { height: 80px; overflow-y: auto; padding: 10px; font-size: 10px; color: #848e9c; background: #161a1e; border-top: 1px solid #333; }
         .input-panel { padding: 15px; background: var(--card); border-top: 1px solid #333; }
-        input { width: 100%; background: #121212; border: 1px solid #444; color: #fff; padding: 12px; border-radius: 6px; margin-bottom: 10px; box-sizing: border-box; }
+        input { width: 100%; background: #121212; border: 1px solid #444; color: #fff; padding: 12px; border-radius: 6px; margin-bottom: 8px; box-sizing: border-box; }
         button { padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px; margin-bottom: 5px; width: 100%; transition: 0.2s; }
         .btn-gold { background: var(--gold); color: #000; }
         .btn-red { background: var(--red); color: white; }
@@ -41,7 +35,7 @@
 <div class="main-wrapper">
     <div class="box">
         <div class="header">
-            <span>🖼️ RADAR ARŞİV v55</span>
+            <span>🖼️ ZAMANLI RADAR v56</span>
             <button onclick="clearGallery()" style="width:auto; padding:4px 10px; background:var(--red); font-size:10px; color:white; border-radius:4px; border:none; cursor:pointer;">TEMİZLE</button>
         </div>
         <div id="gallery-grid"></div>
@@ -62,14 +56,15 @@
 <script>
 let ws;
 let safetyTimer = null;
-let fingerprints = new Set(); // Tekrar engelleme
+let fingerprints = new Set();
 
-// SAYFA YÜKLENDİĞİNDE ÇALIŞAN FONKSİYON
+// Sayfa yüklendiğinde
 window.onload = () => {
-    // 1. Önce Hafızadaki Resimleri Yükle
     loadGalleryFromStorage();
+    
+    // Süreleri her 30 saniyede bir güncelle
+    setInterval(updateAllTimes, 30000);
 
-    // 2. Token ve Otomatik Başlatma Kontrolü
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get('token');
     const urlStart = params.get('start');
@@ -89,30 +84,56 @@ function sysLog(m, c="#848e9c") {
     l.scrollTop = l.scrollHeight;
 }
 
-// RESİMLERİ HAFIZADAN YÜKLE
-function loadGalleryFromStorage() {
-    const saved = JSON.parse(localStorage.getItem('radar_gallery_v55') || "[]");
-    const grid = document.getElementById('gallery-grid');
-    grid.innerHTML = '';
-    
-    saved.forEach(item => {
-        fingerprints.add(item.img);
-        renderImage(item.img, item.user, item.mid);
-    });
-    
-    if(saved.length > 0) sysLog(`📂 Arşivden ${saved.length} resim yüklendi.`, "var(--blue)");
+// ZAMAN HESAPLAMA FONKSİYONU
+function timeAgo(timestamp) {
+    const seconds = Math.floor((new Date() - new Date(timestamp)) / 1000);
+    if (seconds < 60) return `${seconds}sn önce`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}dk önce`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}sa önce`;
+    return new Date(timestamp).toLocaleDateString();
 }
 
-// RESMİ KALICI HAFIZAYA KAYDET
-function saveImageToStorage(img, user, mid) {
-    let saved = JSON.parse(localStorage.getItem('radar_gallery_v55') || "[]");
-    // Zaten kayıtlı mı kontrolü
+// TÜM ETİKETLERİ GÜNCELLE
+function updateAllTimes() {
+    document.querySelectorAll('.time-ago').forEach(el => {
+        const ts = el.getAttribute('data-ts');
+        el.innerText = timeAgo(parseInt(ts));
+    });
+}
+
+function loadGalleryFromStorage() {
+    const saved = JSON.parse(localStorage.getItem('radar_gallery_v56') || "[]");
+    const grid = document.getElementById('gallery-grid');
+    grid.innerHTML = '';
+    saved.forEach(item => {
+        fingerprints.add(item.img);
+        renderImage(item.img, item.user, item.mid, item.timestamp);
+    });
+}
+
+function saveImageToStorage(img, user, mid, timestamp) {
+    let saved = JSON.parse(localStorage.getItem('radar_gallery_v56') || "[]");
     if (!saved.some(i => i.img === img)) {
-        saved.push({ img, user, mid });
-        // Tarayıcıyı şişirmemek için son 200 resmi tutar
-        if (saved.length > 200) saved.shift(); 
-        localStorage.setItem('radar_gallery_v55', JSON.stringify(saved));
+        saved.push({ img, user, mid, timestamp });
+        if (saved.length > 200) saved.shift();
+        localStorage.setItem('radar_gallery_v56', JSON.stringify(saved));
     }
+}
+
+function renderImage(src, user, id, timestamp) {
+    const grid = document.getElementById('gallery-grid');
+    const div = document.createElement('div');
+    div.className = 'gal-item-wrapper';
+    div.innerHTML = `
+        <img src="${src}" class="gal-item" onclick="sendSeen('${user}','${id}')" onerror="this.src='https://placehold.co/100x100?text=Hata'">
+        <div class="info-tag">
+            <span class="time-ago" data-ts="${timestamp}">${timeAgo(timestamp)}</span>
+            @${user}
+        </div>
+    `;
+    grid.prepend(div);
 }
 
 function toggleSafety(start) {
@@ -121,20 +142,16 @@ function toggleSafety(start) {
         localStorage.setItem('radar_active', 'true');
         connect();
         safetyTimer = setInterval(connect, 20000);
-        
         document.getElementById('startBtn').classList.add('active-loop');
-        document.getElementById('startBtn').innerText = "🛡️ KORUMA DEVREDE";
         document.getElementById('status-text').innerText = "● AKTİF";
         document.getElementById('status-text').style.color = "var(--green)";
-        sysLog("🛡️ Dinleme Başlatıldı.", "var(--gold)");
+        sysLog("🛡️ Sistem Aktif.", "var(--gold)");
     } else {
         localStorage.setItem('radar_active', 'false');
         clearInterval(safetyTimer);
         safetyTimer = null;
         if(ws) { ws.onclose = null; ws.close(); }
-        
         document.getElementById('startBtn').classList.remove('active-loop');
-        document.getElementById('startBtn').innerText = "🛡️ KORUMAYI BAŞLAT";
         document.getElementById('status-text').innerText = "● DURDURULDU";
         document.getElementById('status-text').style.color = "var(--red)";
         sysLog("🛑 Durduruldu.", "var(--red)");
@@ -145,14 +162,9 @@ function connect() {
     const t = document.getElementById('token').value.trim();
     if(!t || localStorage.getItem('radar_active') === 'false') return;
     localStorage.setItem('last_token', t);
-    
     if(ws) { ws.onclose = null; ws.close(); }
     ws = new WebSocket(`wss://chat.anonim.chat/socket.io/?token=${t}&EIO=3&transport=websocket`);
-    
-    ws.onopen = () => {
-        setInterval(() => { if(ws.readyState===1) ws.send('2'); }, 10000);
-    };
-
+    ws.onopen = () => { setInterval(() => { if(ws.readyState===1) ws.send('2'); }, 10000); };
     ws.onmessage = (e) => {
         if(e.data.startsWith('42')) {
             try {
@@ -164,51 +176,36 @@ function connect() {
                 const mid = d.msg_id || d.message?.msg_id || d.id;
 
                 if(img && !fingerprints.has(img)) {
+                    const now = Date.now();
                     fingerprints.add(img);
-                    renderImage(img, user, mid);
-                    saveImageToStorage(img, user, mid); // BURASI: GELDİĞİ AN KAYDEDER
-                    sysLog(`📸 Yeni: @${user}`, "var(--gold)");
+                    renderImage(img, user, mid, now);
+                    saveImageToStorage(img, user, mid, now);
+                    sysLog(`📸 Yakalandı: @${user}`, "var(--gold)");
                 }
             } catch(err) {}
         }
     };
 }
 
-// EKRANA RESİM BASMA FONKSİYONU
-function renderImage(src, user, id) {
-    const grid = document.getElementById('gallery-grid');
-    const div = document.createElement('div');
-    div.className = 'gal-item-wrapper';
-    div.innerHTML = `
-        <img src="${src}" class="gal-item" onclick="sendSeen('${user}','${id}')" onerror="this.src='https://placehold.co/100x100?text=Silinmiş'">
-        <div class="user-tag">@${user}</div>
-    `;
-    grid.prepend(div);
-}
-
 function sendSeen(u, i) {
-    if(!ws || ws.readyState !== 1) { 
-        alert("Onay göndermek için dinleme aktif olmalı!"); 
-        return; 
-    }
+    if(!ws || ws.readyState !== 1) return alert("Dinleme açık olmalı!");
     ws.send(`420${JSON.stringify(["messageDataToUser", {"username": u, "type": "oneTimeMediaSeen", "msg_id": i}, null])}`);
-    sysLog(`✔️ @${u} kişisine onay iletildi.`, "var(--green)");
+    sysLog(`✔️ Onay: @${u}`, "var(--green)");
 }
 
 function generateShareLink() {
     const t = document.getElementById('token').value.trim();
-    if(!t) return alert("Önce token girin!");
     const shareUrl = `${window.location.href.split('?')[0]}?token=${t}&start=true`;
     navigator.clipboard.writeText(shareUrl);
-    sysLog("🔗 Link kopyalandı! Mobilde açarsan otomatik başlar.");
+    sysLog("🔗 Link Kopyalandı.");
 }
 
 function clearGallery() {
-    if(confirm("Tüm arşiv silinecek. Emin misin?")) {
-        localStorage.removeItem('radar_gallery_v55');
+    if(confirm("Tüm arşiv silinecek?")) {
+        localStorage.removeItem('radar_gallery_v56');
         fingerprints.clear();
         document.getElementById('gallery-grid').innerHTML = '';
-        sysLog("🧹 Arşiv temizlendi.", "var(--red)");
+        sysLog("🧹 Temizlendi.");
     }
 }
 </script>
